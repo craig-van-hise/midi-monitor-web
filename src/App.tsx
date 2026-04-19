@@ -116,6 +116,7 @@ export default function App() {
 
   // Initialize Web MIDI API
   useEffect(() => {
+    document.title = "VV | MIDI Monitor";
     let unmounted = false;
     // @ts-ignore
     if (navigator.requestMIDIAccess) {
