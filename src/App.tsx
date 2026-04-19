@@ -7,9 +7,22 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Play, Pause, Trash2, Activity, Settings, Info, X } from 'lucide-react';
 
 const CHANNEL_COLORS = [
-  '#ff3b3b', '#ff7b00', '#ffcc00', '#aaff00', '#00ff00', '#00ffaa',
-  '#00ccff', '#0055ff', '#aa00ff', '#ff00ff', '#ff0077', '#ffffff',
-  '#ff9999', '#99ff99', '#99ccff', '#cc99ff'
+  '#FF0000', // Ch 1: Red
+  '#FF6000', // Ch 2: Orange-Red
+  '#FFBF00', // Ch 3: Amber/Gold
+  '#DFFF00', // Ch 4: Lime-Yellow
+  '#80FF00', // Ch 5: Chartreuse
+  '#20FF00', // Ch 6: Bright Green
+  '#00FF40', // Ch 7: Spring Green
+  '#00FF9F', // Ch 8: Seafoam
+  '#00FFFF', // Ch 9: Cyan
+  '#009FFF', // Ch 10: Sky Blue
+  '#0040FF', // Ch 11: Royal Blue
+  '#2000FF', // Ch 12: Indigo
+  '#8000FF', // Ch 13: Purple
+  '#DF00FF', // Ch 14: Magenta
+  '#FF00BF', // Ch 15: Deep Pink
+  '#FF0060'  // Ch 16: Crimson/Rose
 ];
 
 const STREAM_COLORS = [
