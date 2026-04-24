@@ -1,0 +1,41 @@
+
+/Users/vv2024/Documents/Repos - vv2024/WebApps/midi/midi-monitor-web
+├── # Prompts
+|  ├── # 1.md
+|  ├── # 2.md
+|  ├── # 3.md
+|  ├── # 4.md
+|  └── # 5.md
+├── From AI Studio
+|  └── #-midi-monitor
+|     ├── README.md
+|     ├── index.html
+|     ├── metadata.json
+|     ├── package.json
+|     ├── src
+|     |  ├── App.tsx
+|     |  ├── index.css
+|     |  └── main.tsx
+|     ├── tsconfig.json
+|     └── vite.config.ts
+├── MIDIKeyboard.tsx
+├── PRD.md
+├── README.md
+├── index.html
+├── metadata.json
+├── package-lock.json
+├── package.json
+├── project_tree.txt
+├── src
+|  ├── App.tsx
+|  ├── index.css
+|  └── main.tsx
+├── tsconfig.json
+└── vite.config.ts
+
+directory: 539 file: 3497
+
+ignored: directory (49)
+
+
+[2K[1G

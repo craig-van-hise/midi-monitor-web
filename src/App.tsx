@@ -53,6 +53,15 @@ type ParsedMsg = {
   isNoteOff: boolean, isContinuous: boolean, hex: string,
 };
 
+type ActiveNote = { 
+  id: string; // e.g., `${channel}-${note}`
+  ch: number; 
+  note: number; 
+  vel: number; 
+  startT: number; 
+  endT: number | null; 
+};
+
 export default function App() {
   const [midiAccess, setMidiAccess] = useState<any>(null);
   const [inputs, setInputs] = useState<any[]>([]);
@@ -110,6 +119,12 @@ export default function App() {
   const colorModeRef = useRef(colorMode);
   useEffect(() => { colorModeRef.current = colorMode; }, [colorMode]);
 
+  const [streamMode, setStreamMode] = useState<'controllers' | 'notes' | 'velocity'>('controllers');
+  const streamModeRef = useRef<'controllers' | 'notes' | 'velocity'>('controllers');
+  useEffect(() => { 
+    streamModeRef.current = streamMode; 
+  }, [streamMode]);
+
   // High-performance DOM Refs
   const ledgerContentRef = useRef<HTMLDivElement>(null);
   const ledgerScrollContainerRef = useRef<HTMLDivElement>(null);
@@ -117,6 +132,7 @@ export default function App() {
   
   const activeKeysRef = useRef<number[]>(new Array(128).fill(0));
   const streamsRef = useRef<Map<string, Stream>>(new Map());
+  const notesRef = useRef<ActiveNote[]>([]);
   const messageCountRef = useRef(0);
   const lastMessageTimeRef = useRef(0);
   const isAutoScrollRef = useRef(true);
@@ -315,10 +331,29 @@ export default function App() {
           }
           setKeyColor(note, color);
         }
+
+        // Capture for Notes/Velocity Graph
+        notesRef.current.push({
+          id: `${msg.channel}-${note}`,
+          ch: msg.channel,
+          note: note,
+          vel: msg.val2 || 0,
+          startT: virtualReceivedTime,
+          endT: null
+        });
       } else if (msg.isNoteOff) {
         if (!isPausedRef.current && activeKeysRef.current[note]) {
           activeKeysRef.current[note] = 0;
           setKeyColor(note, '');
+        }
+
+        // Find matching note and set endT (manual search for compatibility)
+        for (let i = notesRef.current.length - 1; i >= 0; i--) {
+          const n = notesRef.current[i];
+          if (n.ch === msg.channel && n.note === note && n.endT === null) {
+            n.endT = virtualReceivedTime;
+            break;
+          }
         }
       }
     }
@@ -444,97 +479,138 @@ export default function App() {
       const padding = h * 0.05;
       const plotHeight = h * 0.90;
 
-      ctx.font = 'bold 10px monospace';
-      
       const activeStreams: Stream[] = [];
 
-      // Pass 1: Filter and draw all line graphs
-      for (const stream of streams) {
-        // truncate old data
-        let filtered = stream.data.filter(d => d.t > now - windowMs * 1.5);
-        if (filtered.length === 0 && stream.data.length > 0) {
-           filtered = [stream.data[stream.data.length - 1]];
-        }
-        stream.data = filtered;
-        if (stream.data.length === 0) continue;
+      // Mode-specific Rendering Logic
+      const mode = streamModeRef.current;
 
-        activeStreams.push(stream);
-
-        ctx.strokeStyle = stream.color;
-        ctx.lineWidth = 2.5;
-        ctx.lineJoin = 'round';
-        ctx.beginPath();
-        let isFirst = true;
-        let prevX = 0;
-        let prevY = 0;
-
-        for (let i = 0; i < stream.data.length; i++) {
-          const d = stream.data[i];
-          const x = ((d.t - (now - windowMs)) / windowMs) * w;
-          const y = h - (d.val / stream.maxVal) * plotHeight - padding;
-
-          if (isFirst) { 
-            ctx.moveTo(x, y); 
-            isFirst = false; 
+      if (mode === 'controllers') {
+        // Pass 1: Filter and draw all line graphs
+        for (const stream of streams) {
+          // truncate old data
+          let filtered = stream.data.filter(d => d.t > now - windowMs * 1.5);
+          if (filtered.length === 0 && stream.data.length > 0) {
+            filtered = [stream.data[stream.data.length - 1]];
           }
-          else { 
-            if (graphInterpolationRef.current === 'stepped') {
-              ctx.lineTo(x, prevY);
-              ctx.lineTo(x, y);
-            } else {
-              // Smooth (linear interpolation)
-              ctx.lineTo(x, y);
+          stream.data = filtered;
+          if (stream.data.length === 0) continue;
+
+          activeStreams.push(stream);
+
+          ctx.strokeStyle = stream.color;
+          ctx.lineWidth = 2.5;
+          ctx.lineJoin = 'round';
+          ctx.beginPath();
+          let isFirst = true;
+          let prevX = 0;
+          let prevY = 0;
+
+          for (let i = 0; i < stream.data.length; i++) {
+            const d = stream.data[i];
+            const x = ((d.t - (now - windowMs)) / windowMs) * w;
+            const y = h - (d.val / stream.maxVal) * plotHeight - padding;
+
+            if (isFirst) { 
+              ctx.moveTo(x, y); 
+              isFirst = false; 
             }
+            else { 
+              if (graphInterpolationRef.current === 'stepped') {
+                ctx.lineTo(x, prevY);
+                ctx.lineTo(x, y);
+              } else {
+                ctx.lineTo(x, y);
+              }
+            }
+            prevX = x;
+            prevY = y;
           }
-          prevX = x;
-          prevY = y;
+
+          // Draw solid flat line extrapolated to current time
+          const lastData = stream.data[stream.data.length - 1];
+          if (lastData.t <= now) {
+            const endX = w;
+            const endY = h - (lastData.val / stream.maxVal) * plotHeight - padding;
+            ctx.lineTo(endX, endY);
+          }
+          ctx.stroke();
         }
 
-        // Draw solid flat line extrapolated to current time
-        const lastData = stream.data[stream.data.length - 1];
-        if (lastData.t <= now) {
-          const endX = w;
-          const endY = h - (lastData.val / stream.maxVal) * plotHeight - padding;
-          ctx.lineTo(endX, endY);
-        }
-        ctx.stroke();
-      }
+        // Pass 2: Draw unified Master Legend card
+        if (activeStreams.length > 0) {
+          const padX = 8;
+          const padY = 8;
+          const itemH = 16;
+          
+          ctx.font = 'bold 10px monospace';
+          let maxTextW = 0;
+          for (const s of activeStreams) {
+            const tw = ctx.measureText(s.id).width;
+            if (tw > maxTextW) maxTextW = tw;
+          }
 
-      // Pass 2: Draw unified Master Legend card
-      if (activeStreams.length > 0) {
-        const padX = 8;
-        const padY = 8;
-        const itemH = 16;
+          const legendW = maxTextW + padX * 2;
+          const legendH = activeStreams.length * itemH + padY * 2;
+          const legendX = 8;
+          const legendY = 8;
+
+          ctx.fillStyle = '#0a0a0b';
+          ctx.beginPath();
+          ctx.roundRect(legendX, legendY, legendW, legendH, 4);
+          ctx.fill();
+          
+          ctx.strokeStyle = '#2e2f36';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
+          let textY = legendY + padY + itemH / 2;
+          ctx.textBaseline = 'middle';
+
+          for (const s of activeStreams) {
+            ctx.fillStyle = s.color;
+            ctx.fillText(s.id, legendX + padX, textY);
+            textY += itemH;
+          }
+        }
+      } else if (mode === 'notes') {
+        // Memory Cleanup
+        notesRef.current = notesRef.current.filter(n => !(n.endT !== null && n.endT < now - windowMs * 1.5));
         
-        let maxTextW = 0;
-        for (const s of activeStreams) {
-          const tw = ctx.measureText(s.id).width;
-          if (tw > maxTextW) maxTextW = tw;
-        }
-
-        const legendW = maxTextW + padX * 2;
-        const legendH = activeStreams.length * itemH + padY * 2;
-        const legendX = 8;
-        const legendY = 8;
-
-        // bg (100% opaque)
-        ctx.fillStyle = '#0a0a0b'; // color-bg-deep
-        ctx.beginPath();
-        ctx.roundRect(legendX, legendY, legendW, legendH, 4);
-        ctx.fill();
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
         
-        // border
-        ctx.strokeStyle = '#2e2f36'; // color-border-color
-        ctx.lineWidth = 1;
-        ctx.stroke();
+        for (const note of notesRef.current) {
+          const startX = ((note.startT - (now - windowMs)) / windowMs) * w;
+          const endT = note.endT === null ? now : note.endT;
+          const endX = ((endT - (now - windowMs)) / windowMs) * w;
+          const y = h - (note.note / 127) * plotHeight - padding;
 
-        let textY = legendY + padY + itemH / 2; // initial vertical center
-        ctx.textBaseline = 'middle';
+          if (endX < 0 || startX > w) continue;
 
-        for (const s of activeStreams) {
-          ctx.fillStyle = s.color;
-          ctx.fillText(s.id, legendX + padX, textY);
-          textY += itemH;
+          ctx.strokeStyle = CHANNEL_COLORS[note.ch - 1];
+          ctx.beginPath();
+          ctx.moveTo(startX, y);
+          ctx.lineTo(endX, y);
+          ctx.stroke();
+        }
+      } else if (mode === 'velocity') {
+        // Memory Cleanup
+        notesRef.current = notesRef.current.filter(n => !(n.endT !== null && n.endT < now - windowMs * 1.5));
+        
+        ctx.lineWidth = 2;
+        
+        for (const note of notesRef.current) {
+          const startX = ((note.startT - (now - windowMs)) / windowMs) * w;
+          if (startX < 0 || startX > w) continue;
+
+          const velH = (note.vel / 127) * plotHeight;
+          const y = h - velH - padding;
+
+          ctx.strokeStyle = `hsl(${240 + (note.vel / 127) * 120}, 100%, 50%)`;
+          ctx.beginPath();
+          ctx.moveTo(startX, h - padding);
+          ctx.lineTo(startX, y);
+          ctx.stroke();
         }
       }
       
@@ -563,6 +639,7 @@ export default function App() {
     messageCountRef.current = 0;
     lastMessageTimeRef.current = 0;
     streamsRef.current.clear();
+    notesRef.current = [];
     ledgerHistoryRef.current = [];
   };
 
@@ -788,7 +865,14 @@ export default function App() {
         <div className="flex-1 flex flex-col min-w-0 min-h-[30vh] bg-bg-deep p-[12px] md:p-[20px] relative">
           
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-[12px]">
-              <div className="text-[10px] uppercase tracking-[0.05em] text-text-dim font-bold">Continuous Data Stream</div>
+              <div className="flex items-center gap-4">
+                <div className="text-[10px] uppercase tracking-[0.05em] text-text-dim font-bold">Continuous Data Stream</div>
+                <div className="flex bg-bg-deep rounded p-[2px] border border-border-color">
+                    <button onClick={() => setStreamMode('controllers')} className={`px-2 py-0.5 rounded text-[9px] uppercase transition-colors outline-none cursor-pointer ${streamMode === 'controllers' ? 'bg-bg-panel text-white font-bold shadow-sm' : 'text-text-dim hover:text-text-main'}`}>Controllers</button>
+                    <button onClick={() => setStreamMode('notes')} className={`px-2 py-0.5 rounded text-[9px] uppercase transition-colors outline-none cursor-pointer ${streamMode === 'notes' ? 'bg-bg-panel text-white font-bold shadow-sm' : 'text-text-dim hover:text-text-main'}`}>Notes</button>
+                    <button onClick={() => setStreamMode('velocity')} className={`px-2 py-0.5 rounded text-[9px] uppercase transition-colors outline-none cursor-pointer ${streamMode === 'velocity' ? 'bg-bg-panel text-white font-bold shadow-sm' : 'text-text-dim hover:text-text-main'}`}>Velocity</button>
+                </div>
+              </div>
               <div className="flex items-center gap-[12px] mt-2 sm:mt-0">
                   <span className="text-[10px] uppercase tracking-[0.05em] text-text-dim font-bold">Window: {timeWindow}s</span>
                   <input 
@@ -801,8 +885,20 @@ export default function App() {
               </div>
           </div>
 
-          <div className="flex-1 border border-border-color bg-black relative">
-              <canvas ref={canvasRef} className="w-full h-full block absolute inset-0"></canvas>
+          <div className="flex-1 flex flex-row relative min-h-0">
+            {/* Y-Axis Labels */}
+            <div className="w-[28px] flex-none flex flex-col justify-between items-end pr-[6px] py-[5%] text-[10px] text-text-dim font-mono select-none">
+              <span>127</span>
+              <span>96</span>
+              <span>64</span>
+              <span>32</span>
+              <span>0</span>
+            </div>
+            
+            {/* Canvas Wrapper */}
+            <div className="flex-1 border border-border-color bg-black relative">
+                <canvas ref={canvasRef} className="w-full h-full block absolute inset-0"></canvas>
+            </div>
           </div>
         </div>
       </main>
